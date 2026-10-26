@@ -122,6 +122,12 @@ a { color: inherit; }
 .guide-main { font-weight: 800; font-size: 18px; line-height: 1.15; }
 .guide-sub { font: 600 13px/1.3 var(--font-num); color: var(--ink-dim); margin-top: 3px; }
 .hint { max-width: 100%; padding: 7px 12px; border-radius: 10px; background: var(--ink); color: var(--night); font-weight: 700; font-size: 13px; }
+.align {
+  display: inline-flex; align-items: center; gap: 10px; padding: 4px 4px 4px 12px; border-radius: 999px;
+  background: var(--panel-glass); border: 1px solid var(--line); color: var(--ink-dim);
+  font: 600 12px/1 var(--font-num);
+}
+.align-reset { border: 0; border-radius: 999px; padding: 6px 10px; background: var(--panel-2); color: var(--ink); font: 800 11px/1 var(--font-sign); letter-spacing: .08em; text-transform: uppercase; }
 
 /* ---------- bottom dock ---------- */
 .dock {
@@ -309,6 +315,7 @@ label { font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform:
       <button id="guideStop" class="btn small ghost" hidden>End</button>
     </div>
     <div id="hint" class="hint" hidden></div>
+    <div id="align" class="align" hidden><span id="alignText"></span><button id="alignReset" class="align-reset">Reset</button></div>
   </header>
 
   <button id="recenter" class="recenter" hidden>
@@ -353,7 +360,8 @@ const FOV_LONG = 63 * D2R;  // rear camera field of view along the long side of 
 const AHEAD = 40;           // footprints are drawn this far ahead
 const LINE_AHEAD = 160;     // a faint trail line continues this far
 const MIN_GAP = 3;          // metres between recorded points
-const MAX_ACC = 30;         // fixes worse than this are not recorded
+const MAX_ACC = 25;         // fixes worse than this are not recorded
+const MAX_SPEED = 5;        // m/s; a recorded point implying faster movement is a GPS jump
 const ARRIVE = 8;           // metres from the destination that count as arrived
 const TRAIL_RGB = '255,181,71', SPOT_RGB = '198,168,255', ME_RGB = '108,184,255'; // match --trail, --spot, --me
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -368,7 +376,11 @@ const ICON = {
 
 // ---------- saved data (lives in this phone's browser) ----------
 function readDb() { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } }
-const db = Object.assign({ current: null, archive: [], spots: [], dir: 'back', units: '', snap: true, seenIntro: false, recording: false }, readDb());
+const db = Object.assign({
+  current: null, archive: [], spots: [], dir: 'back', units: '', snap: true, seenIntro: false, recording: false,
+  fix: { deg: 0, src: 'none' },   // compass correction in degrees: raw heading minus true heading
+  alignTip: false,
+}, readDb());
 if (!db.units) db.units = /^en-US$/i.test(navigator.language || '') ? 'imperial' : 'metric';
 let saveTimer = 0;
 function save(now) {
@@ -529,13 +541,17 @@ function trailFrame() {
 }
 
 // ---------- GPS ----------
-const kf = { v: -1, lat: 0, lon: 0, t: 0 };
+const kf = { v: -1, lat: 0, lon: 0, t: 0, skips: 0 };
+// Returns false for a fix that jumps far outside what walking could explain (skipped unless it keeps happening).
 function filterFix(lat, lon, acc, t) {
-  if (kf.v < 0 || t - kf.t > 30000) { Object.assign(kf, { lat, lon, v: acc * acc, t }); return; }
-  kf.v += Math.max(0, (t - kf.t) / 1000) * 3.5 * 3.5;   // walking pace uncertainty
-  kf.t = t;
+  if (kf.v < 0 || t - kf.t > 30000) { Object.assign(kf, { lat, lon, v: acc * acc, t, skips: 0 }); return true; }
+  const v = kf.v + Math.max(0, (t - kf.t) / 1000) * 3.5 * 3.5;   // walking pace uncertainty
+  const jump = distLL([kf.lat, kf.lon], [lat, lon]);
+  if (jump > 30 && jump > 3 * Math.sqrt(v + acc * acc) && ++kf.skips < 3) return false;
+  kf.skips = 0; kf.v = v; kf.t = t;
   const k = kf.v / (kf.v + acc * acc);
   kf.lat += k * (lat - kf.lat); kf.lon += k * (lon - kf.lon); kf.v *= 1 - k;
+  return true;
 }
 let watchId = null;
 function startGPS() {
@@ -546,12 +562,13 @@ function startGPS() {
 function onFix(p) {
   const c = p.coords, t = p.timestamp || Date.now();
   st.geoErr = '';
-  filterFix(c.latitude, c.longitude, Math.max(3, c.accuracy), t);
+  st.acc = c.accuracy;
+  if (!filterFix(c.latitude, c.longitude, Math.max(3, c.accuracy), t)) { updateGps(); return; }
   const first = !st.pos;
   st.pos = { lat: kf.lat, lon: kf.lon };
-  st.acc = c.accuracy;
   if (c.heading != null && !isNaN(c.heading) && (c.speed || 0) > 0.8) { st.gpsHeading = c.heading; st.gpsHeadingT = Date.now(); }
   if (st.mode === 'recording' && c.accuracy <= MAX_ACC) addPoint(kf.lat, kf.lon, t, c.accuracy);
+  calibrate(kf.lat, kf.lon, c.accuracy);
   updateGps(); updateMe(first); updateStatus();
 }
 function onGeoErr(err) {
@@ -563,7 +580,9 @@ function onGeoErr(err) {
 }
 function addPoint(lat, lon, t, acc) {
   const p = pts(), last = p[p.length - 1];
-  if (last && distLL(last, [lat, lon]) < MIN_GAP) return;
+  const gap = last ? distLL(last, [lat, lon]) : Infinity, secs = last ? (t - last[2]) / 1000 : 0;
+  if (gap < MIN_GAP) return;
+  if (last && secs > 0 && secs < 10 && gap / secs > MAX_SPEED) return;   // a GPS jump, not a step
   p.push([+lat.toFixed(7), +lon.toFixed(7), t, Math.round(acc)]);
   geo = null;
   save();
@@ -578,6 +597,7 @@ function onOrient(e, absEvent) {
   if (typeof e.webkitCompassHeading === 'number' && isFinite(e.webkitCompassHeading)) alpha = (360 - e.webkitCompassHeading) % 360; // iPhone
   else if ((absEvent || e.absolute) && e.alpha != null) alpha = e.alpha;                                                           // Android
   if (alpha == null || e.beta == null || e.gamma == null) return;
+  st.motionDenied = false;   // readings are arriving, so access is on
   if (ori.a == null) Object.assign(ori, { a: alpha, b: e.beta, g: e.gamma });
   else {
     ori.a = (ori.a + 0.2 * angDiff(ori.a, alpha) + 360) % 360;
@@ -594,8 +614,10 @@ function enableMotion() {
     DOE.requestPermission().then(r => { st.motionDenied = r !== 'granted'; }).catch(() => {});
   }
 }
+// Phone compasses point to magnetic north and pick up nearby metal; the map uses true north.
+// db.fix.deg (raw minus true heading) turns the device about the vertical axis to line them up.
 function orientation() {
-  if (ori.a != null && performance.now() - ori.t < 1500) { st.fake = false; return ori; }
+  if (ori.a != null && performance.now() - ori.t < 1500) { st.fake = false; return { a: (ori.a + db.fix.deg + 360) % 360, b: ori.b, g: ori.g }; }
   if (st.fake || (st.view === 'ground' && performance.now() - st.groundSince > 1200)) { st.fake = true; return fake; }
   return null;
 }
@@ -616,6 +638,36 @@ function currentHeading() {
   if (o) return headingFrom(rot(o.a, o.b, o.g));
   if (st.gpsHeading != null && Date.now() - st.gpsHeadingT < 5000) return st.gpsHeading;
   return null;
+}
+const norm180 = d => ((d % 360) + 540) % 360 - 180;
+function setFix(deg, src) { db.fix = { deg: norm180(deg), src }; save(); }
+// Learn the compass error while you walk with the phone held up: over each straight stretch of
+// 8 m or more, compare the direction GPS says you moved with the direction the compass reported.
+const calWin = [], calSamples = [];
+function calibrate(lat, lon, acc) {
+  const held = ori.a != null && performance.now() - ori.t < 1500 && ori.b > 20 && ori.b < 110 && Math.abs(ori.g) < 35;
+  if (db.fix.src === 'manual' || acc > 15 || !held) { calWin.length = 0; return; }
+  calWin.push([lat, lon, headingFrom(rot(ori.a, ori.b, ori.g))]);
+  if (calWin.length > 12) calWin.shift();
+  if (calWin.length < 6) return;
+  const a = calWin[0], b = calWin[calWin.length - 1], [dx, dy] = toXY(b[0], b[1], a[0], a[1]), d = Math.hypot(dx, dy);
+  let walked = 0;
+  for (let i = 1; i < calWin.length; i++) walked += distLL(calWin[i - 1], calWin[i]);
+  if (d < 8 || d / walked < 0.9) return;                       // too short or not straight yet
+  let sx = 0, sy = 0;
+  for (const w of calWin) { sx += Math.sin(w[2] * D2R); sy += Math.cos(w[2] * D2R); }
+  const steady = Math.hypot(sx, sy) / calWin.length;        // 1 when every reading points the same way
+  calWin.length = 0;
+  if (steady < 0.95) return;                                   // phone was swinging around
+  calSamples.push(norm180(Math.atan2(sx, sy) / D2R - Math.atan2(dx, dy) / D2R));
+  if (calSamples.length > 15) calSamples.shift();
+  if (calSamples.length < 4) return;
+  const sorted = calSamples.slice().sort((p, q) => p - q), med = sorted[sorted.length >> 1];
+  if (calSamples.filter(v => Math.abs(v - med) < 15).length < calSamples.length * 0.7) return;   // samples disagree
+  if (Math.abs(norm180(db.fix.deg - med)) < 2) return;
+  const first = db.fix.src !== 'auto';
+  setFix(med, 'auto');
+  if (first) toast(`Compass corrected by ${Math.round(Math.abs(med))}° from the direction you're walking.`, 4500);
 }
 
 // ---------- screen and camera ----------
@@ -663,6 +715,11 @@ function setView(v) {
     startCamera();
     st.groundSince = performance.now();
     if (!raf) raf = requestAnimationFrame(loop);
+    if (!db.alignTip) setTimeout(() => {
+      if (st.view !== 'ground' || st.fake || pts().length < 2 || db.alignTip) return;
+      db.alignTip = true; save();
+      toast('Footprints off from where you walked? Drag them sideways to line them up.', 6500);
+    }, 3500);
   } else {
     stopCamera();
     cancelAnimationFrame(raf); raf = 0;
@@ -842,16 +899,38 @@ function beacon(P, x, y, text, rgb, strong) {
   label(top[0], top[1] - 4, text, rgb);
 }
 
-// Drag and arrow keys stand in for a compass and walking on a computer.
-let drag = null;
-cv.addEventListener('pointerdown', e => { if (!st.fake) return; drag = [e.clientX, e.clientY]; cv.setPointerCapture(e.pointerId); });
+// On a phone, dragging sideways turns the footprints onto the path you really walked.
+// On a computer without a compass, drag and arrow keys stand in for turning and walking.
+let drag = null, dragFrom = 0;
+cv.addEventListener('pointerdown', e => {
+  drag = [e.clientX, e.clientY]; dragFrom = db.fix.deg;
+  cv.setPointerCapture(e.pointerId);
+});
 cv.addEventListener('pointermove', e => {
   if (!drag) return;
-  fake.a = (fake.a + (e.clientX - drag[0]) * 0.25 + 360) % 360;
-  fake.b = Math.max(5, Math.min(88, fake.b + (e.clientY - drag[1]) * 0.2));
+  const dx = e.clientX - drag[0], dy = e.clientY - drag[1];
+  if (st.fake) {
+    fake.a = (fake.a + dx * 0.25 + 360) % 360;
+    fake.b = Math.max(5, Math.min(88, fake.b + dy * 0.2));
+  } else {
+    db.fix = { deg: norm180(db.fix.deg + dx * 0.12), src: 'manual' };   // about 8° per inch of drag
+    updateAlign();
+  }
   drag = [e.clientX, e.clientY];
 });
-['pointerup', 'pointercancel'].forEach(n => cv.addEventListener(n, () => { drag = null; }));
+['pointerup', 'pointercancel'].forEach(n => cv.addEventListener(n, () => {
+  if (drag && !st.fake && Math.abs(norm180(db.fix.deg - dragFrom)) >= 0.5) {
+    save(true);
+    toast(`Lined up. Retrace will keep this ${Math.round(Math.abs(db.fix.deg))}° compass correction.`);
+  }
+  drag = null;
+}));
+function updateAlign() {
+  const el = $('#align'), deg = Math.round(Math.abs(db.fix.deg));
+  const show = st.view === 'ground' && !st.fake && db.fix.src !== 'none' && deg > 0;
+  el.hidden = !show;
+  if (show) $('#alignText').textContent = db.fix.src === 'manual' ? `Lined up by you · ${deg}°` : `Compass auto-corrected · ${deg}°`;
+}
 addEventListener('keydown', e => {
   if (st.view !== 'ground' || !st.fake || !$('#sheet').hidden) return;
   if (e.key === 'ArrowLeft') fake.a = (fake.a + 6) % 360;
@@ -1480,6 +1559,10 @@ $('#dirFwd').addEventListener('click', () => setDir('forward'));
 $('#tabMap').addEventListener('click', () => setView('map'));
 $('#tabGround').addEventListener('click', () => setView('ground'));
 $('#guideStop').addEventListener('click', () => { st.target = null; refresh(); });
+$('#alignReset').addEventListener('click', () => {
+  setFix(0, 'none'); calSamples.length = 0; updateAlign();
+  toast('Compass correction cleared. It will relearn as you walk.');
+});
 $('#recenter').addEventListener('click', () => {
   st.follow = true; $('#recenter').hidden = true;
   const me = here();
@@ -1494,7 +1577,7 @@ addEventListener('pagehide', () => save(true));
 let ticks = 0;
 setInterval(() => {
   ticks++;
-  updateGuide(); updateCone(); updateHint();
+  updateGuide(); updateCone(); updateHint(); updateAlign();
   if (ticks % 4 === 0 && st.mode === 'recording') updateStatus();
 }, 250);
 
