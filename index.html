@@ -142,6 +142,8 @@ a { color: inherit; }
   font-weight: 800; font-size: 14px; color: var(--ink-dim);
 }
 .dir button[aria-checked="true"] { background: var(--trail); color: var(--trail-ink); }
+.dir button { min-width: 0; }
+.dir button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dir svg { width: 16px; height: 16px; flex: none; }
 .dockrow { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 14px; width: 100%; max-width: 440px; }
 .side {
@@ -239,6 +241,13 @@ a { color: inherit; }
 .list li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line); }
 .li-main { flex: 1; min-width: 0; }
 .pin-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--spot); flex: none; }
+.card .list li { background: var(--panel); }
+.stop-dot { width: 10px; height: 10px; border-radius: 3px; background: var(--trail); flex: none; }
+.stop-dot.end { border-radius: 50%; box-shadow: 0 0 0 3px var(--trail-soft); }
+.name-row { display: flex; gap: 8px; }
+.name-row .field { flex: 1; min-width: 0; }
+.eyebrow.spot { color: var(--spot); }
+.btn:disabled { opacity: .45; cursor: default; }
 .setting { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 4px 0; }
 .setting small { display: block; color: var(--ink-dim); font-size: 12px; }
 .seg.small button { padding: 6px 12px; font-size: 11px; }
@@ -309,8 +318,8 @@ label { font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform:
 
   <footer class="dock">
     <div id="dir" class="dir" role="radiogroup" aria-label="Which way the footprints lead" hidden>
-      <button id="dirBack" role="radio" aria-checked="true"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Back to start</button>
-      <button id="dirFwd" role="radio" aria-checked="false">Forward to end<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button id="dirBack" role="radio" aria-checked="true"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="dirBackText">Back to start</span></button>
+      <button id="dirFwd" role="radio" aria-checked="false"><span id="dirFwdText">Forward to end</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     </div>
     <div class="dockrow">
       <button id="btnTrails" class="side">
@@ -318,10 +327,7 @@ label { font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform:
         Trails
       </button>
       <button id="btnMain" class="main"></button>
-      <button id="btnSpot" class="side">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.3" fill="currentColor"/></svg>
-        Save spot
-      </button>
+      <button id="btnSpot" class="side"></button>
     </div>
     <div id="attrib" class="attrib">Map © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors</div>
   </footer>
@@ -356,6 +362,8 @@ const ICON = {
   feet: '<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="8.2" cy="7.6" rx="2.9" ry="4.4" fill="currentColor"/><ellipse cx="8.4" cy="14.6" rx="2" ry="1.8" fill="currentColor"/><ellipse cx="15.8" cy="10.4" rx="2.9" ry="4.4" fill="currentColor"/><ellipse cx="15.6" cy="17.4" rx="2" ry="1.8" fill="currentColor"/></svg>',
   stop: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor"/></svg>',
   check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  pin: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.3" fill="currentColor"/></svg>',
+  flag: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4m0 1h11l-2.5 4L17 13H6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
 
 // ---------- saved data (lives in this phone's browser) ----------
@@ -371,6 +379,25 @@ function save(now) {
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const pts = () => (db.current ? db.current.points : []);   // [lat, lon, time, accuracy]
 const spotById = id => db.spots.find(s => s.id === id);
+
+// Named stops along a trail: where it began, stops added on the way, and where it ended.
+// `i` is the index of the stop's point in trail.points.
+const stops = () => (db.current && db.current.stops ? db.current.stops : []);
+function ensureStops(t, recording) {
+  if (!t || t.stops) return;
+  const n = t.points.length;
+  t.stops = n ? [{ id: uid(), name: 'Start', i: 0 }] : [];
+  if (n > 1 && !recording) t.stops.push({ id: uid(), name: 'End', i: n - 1 });
+}
+ensureStops(db.current, db.recording);
+db.archive.forEach(t => ensureStops(t));
+// The stop the footprints lead to in each direction: a chosen stop, or else the far end.
+function destStop(dir = db.dir) {
+  const s = stops();
+  if (!s.length) return null;
+  const want = db.current.dest && db.current.dest[dir];
+  return s.find(x => x.id === want) || (dir === 'back' ? s[0] : s[s.length - 1]);
+}
 
 // ---------- live state ----------
 const st = {
@@ -405,7 +432,13 @@ function fmtDur(ms) {
   return h ? `${h} h ${String(m).padStart(2, '0')} min` : `${m}:${String(s % 60).padStart(2, '0')}`;
 }
 const fmtDate = t => new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-const trailName = t => t.name || 'Trail · ' + fmtDate(t.created);
+function trailName(t) {
+  if (t.name) return t.name;
+  const s = t.stops || [], a = s[0], b = s[s.length - 1];
+  if (a && b && a !== b && (a.name !== 'Start' || b.name !== 'End')) return `${a.name} to ${b.name}`;
+  if (a && a.name !== 'Start') return 'From ' + a.name;
+  return 'Trail · ' + fmtDate(t.created);
+}
 const COMPASS = ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest'];
 const compass = b => COMPASS[Math.round(b / 45) % 8];
 const angDiff = (a, b) => ((b - a + 540) % 360) - 180;
@@ -434,19 +467,33 @@ function smooth(xy) {
   out.push(xy[xy.length - 1]);
   return out;
 }
-// The trail in local metres, ordered in the direction you want to walk.
+// The trail in local metres, ordered in the direction you want to walk and ending at the
+// destination stop. `marks` places each stop on it (j = index in xy, s = metres along).
 function getGeo() {
   const p = pts();
   if (p.length < 2) return null;
-  const key = db.current.id + ':' + p.length + ':' + db.dir;
+  const N = p.length, back = db.dir === 'back', d = destStop();
+  let di = d ? Math.min(d.i, N - 1) : back ? 0 : N - 1;
+  if (back ? N - di < 2 : di < 1) di = back ? 0 : N - 1;   // nothing to walk that way: use the whole trail
+  const key = db.current.id + ':' + N + ':' + db.dir + ':' + di;
   if (geo && geo.key === key) return geo;
   const lat0 = p[0][0], lon0 = p[0][1];
-  let xy = smooth(p.map(q => toXY(q[0], q[1], lat0, lon0)));
-  if (db.dir === 'back') xy = xy.slice().reverse();
+  let xy = smooth((back ? p.slice(di) : p.slice(0, di + 1)).map(q => toXY(q[0], q[1], lat0, lon0)));
+  if (back) xy = xy.slice().reverse();
   const cum = [0];
   for (let i = 1; i < xy.length; i++) cum.push(cum[i - 1] + Math.hypot(xy[i][0] - xy[i - 1][0], xy[i][1] - xy[i - 1][1]));
-  return (geo = { key, lat0, lon0, xy, cum, total: cum[cum.length - 1] });
+  const lo = back ? di : 0, hi = back ? N - 1 : di;
+  const marks = stops().filter(x => x.i >= lo && x.i <= hi).map(x => { const j = back ? N - 1 - x.i : x.i; return { stop: x, j, s: cum[j] }; });
+  return (geo = { key, lat0, lon0, xy, cum, total: cum[cum.length - 1], marks });
 }
+function trailIndexHere() {
+  const me = here(), p = pts();
+  if (!me || !p.length) return null;
+  let best = 0, bd = Infinity;
+  p.forEach((q, i) => { const d = distLL([me.lat, me.lon], q); if (d < bd) { bd = d; best = i; } });
+  return best;
+}
+const alongTrail = i => pathLen(pts().slice(0, i + 1));
 function at(g, s) {
   s = Math.max(0, Math.min(g.total, s));
   let lo = 0, hi = g.cum.length - 1;
@@ -626,6 +673,7 @@ function setView(v) {
 
 // ---------- ground view drawing ----------
 let gw = 0, gh = 0, gtop = 0;   // canvas size, and the lowest edge of the top controls
+let placed = [];                // label boxes drawn this frame
 function loop(now) { raf = requestAnimationFrame(loop); drawGround(now); }
 function makeProjector(o) {
   const R = rot(o.a, o.b, o.g);
@@ -653,6 +701,7 @@ function drawGround(now) {
   if (cv.width !== Math.round(gw * dpr) || cv.height !== Math.round(gh * dpr)) { cv.width = Math.round(gw * dpr); cv.height = Math.round(gh * dpr); }
   cx.setTransform(dpr, 0, 0, dpr, 0, 0);
   cx.clearRect(0, 0, gw, gh);
+  placed = [];
   const o = orientation(), me = here();
   if (!o || !me) return;
   const P = makeProjector(o), f = trailFrame();
@@ -742,9 +791,12 @@ function drawTrail(P, f, now) {
     cx.strokeStyle = `rgba(24,14,0,${0.6 * fade})`;
     cx.stroke();
   }
-  // where the footprints lead
-  const end = g.xy[g.xy.length - 1];
-  beacon(P, end[0] + ox, end[1] + oy, `${db.dir === 'back' ? 'Start' : 'End'} · ${fmtDist(g.total - s0 + n.d)}`, TRAIL_RGB, true);
+  // stops still ahead; the last one is where the footprints lead
+  for (const m of g.marks) {
+    if (m.s < s0 - 1) continue;
+    const q = g.xy[m.j];
+    beacon(P, q[0] + ox, q[1] + oy, `${m.stop.name} · ${fmtDist(m.s - s0 + n.d)}`, TRAIL_RGB, m.j === g.xy.length - 1);
+  }
 }
 function drawSpots(P, me) {
   for (const s of db.spots) {
@@ -758,6 +810,9 @@ function label(x, y, text, rgb) {
   const w = cx.measureText(text).width + 18, h = 25;
   x = Math.max(8 + w / 2, Math.min(gw - 8 - w / 2, x));
   y = Math.max(gtop + h + 6, y);
+  // stops far away line up near the horizon: stack labels instead of overlapping them
+  for (let n = 0; n < 6 && placed.some(r => Math.abs(r[0] - x) < (r[2] + w) / 2 + 4 && Math.abs(r[1] - y) < h + 4); n++) y += h + 4;
+  placed.push([x, y, w]);
   cx.fillStyle = 'rgba(12,17,22,.86)';
   rrect(x - w / 2, y - h, w, h, 7); cx.fill();
   cx.fillStyle = `rgb(${rgb})`;
@@ -863,10 +918,14 @@ function renderTrail() {
   layers.line.setLatLngs(ll); layers.glow.setLatLngs(ll);
   layers.ends.clearLayers(); layers.arrows.clearLayers();
   if (!p.length) return;
-  const pin = (at, text, dest) => L.marker(at, { icon: L.divIcon({ className: 'ri', html: `<div class="endpin${dest ? ' dest' : ''}">${text}</div>`, iconSize: [0, 0] }), interactive: false, keyboard: false });
-  layers.ends.addLayer(pin(ll[0], 'Start', st.mode !== 'recording' && db.dir === 'back'));
+  const dest = st.mode !== 'recording' && p.length > 1 ? destStop() : null;
+  for (const s of stops()) {
+    if (s.i >= p.length) continue;
+    const m = L.marker(ll[s.i], { icon: L.divIcon({ className: 'ri', html: `<div class="endpin${dest && dest.id === s.id ? ' dest' : ''}">${esc(s.name)}</div>`, iconSize: [0, 0] }), title: s.name, zIndexOffset: 500 });
+    m.on('click', () => openStopSheet(s.id));
+    layers.ends.addLayer(m);
+  }
   if (p.length < 2 || st.mode === 'recording') return;
-  layers.ends.addLayer(pin(ll[ll.length - 1], 'End', db.dir === 'forward'));
   const g = getGeo(), gap = Math.max(25, g.total / 30);
   for (let s = gap / 2; s < g.total - 5; s += gap) {
     const a = at(g, s), b = at(g, s + 1), ang = Math.atan2(b[0] - a[0], b[1] - a[1]) / D2R, [lat, lon] = fromXY(a[0], a[1], g.lat0, g.lon0);
@@ -904,15 +963,40 @@ function updateCone() {
 }
 
 // ---------- recording and guiding ----------
-function startRecording() {
+function nearbySpot(max = 30) {
+  const me = here();
+  if (!me) return null;
+  let best = null, bd = max;
+  for (const s of db.spots) { const d = distLL([me.lat, me.lon], [s.lat, s.lon]); if (d <= bd) { bd = d; best = s; } }
+  return best;
+}
+// fromSpot: start a fresh trail at a saved spot, archiving the current one.
+function startRecording(fromSpot) {
   startGPS();
-  if (!db.current) db.current = { id: uid(), name: '', created: Date.now(), points: [] };
+  let note = '';
+  if (fromSpot && db.current) {
+    if (db.current.points.length > 1) { db.archive.unshift(db.current); note = ' Your previous trail was archived.'; }
+    db.current = null;
+  }
+  if (!db.current) {
+    const from = fromSpot || nearbySpot();
+    db.current = { id: uid(), name: '', created: Date.now(), points: [], stops: [{ id: uid(), name: from ? from.name : 'Start', i: 0 }] };
+    if (fromSpot) db.current.points.push([fromSpot.lat, fromSpot.lon, Date.now(), 5]);
+    note = (from ? `Recording from ${from.name}.` : 'Recording.') + (note || ' Keep this page open while you walk.');
+  } else {
+    // Picking up again: where you stopped becomes a stop along the way.
+    ensureStops(db.current, true);
+    const s = stops(), last = s[s.length - 1];
+    if (s.length > 1 && last.name === 'End') last.name = 'Stop ' + (s.length - 1);
+    note = `Recording again from ${last ? last.name : 'where you stopped'}.`;
+  }
+  db.current.dest = null;
   st.mode = 'recording'; st.sim = null; st.follow = true;
-  db.recording = true;
+  db.recording = true; geo = null;
   if (st.pos && st.acc <= MAX_ACC) addPoint(st.pos.lat, st.pos.lon, Date.now(), st.acc);
   save(true); refresh(); keepAwake(true);
   $('#recenter').hidden = true;
-  toast('Recording. Keep this page open while you walk.');
+  toast(note, 4000);
 }
 function stopRecording() {
   db.recording = false;
@@ -924,10 +1008,36 @@ function stopRecording() {
     db.current = null; st.mode = 'idle';
     toast('Not enough GPS points yet, so nothing was saved. Walk a little further next time.', 4500);
   } else {
+    const s = stops(), lastStop = s[s.length - 1], endI = p.length - 1;
+    if (lastStop && lastStop.i > 0 && distLL(p[lastStop.i], p[endI]) < 15) lastStop.i = endI;   // you added a stop where you finished
+    else s.push({ id: uid(), name: 'End', i: endI });
+    db.current.dest = null;
     st.mode = 'stopped';
     toast('Trail saved. Tap Follow trail when you want to head back.');
   }
   geo = null; save(true); refresh(); fitTrail(); keepAwake(needAwake());
+}
+// Mark a named stop where you are now; recording carries on from it.
+function addStop(name) {
+  const p = pts();
+  if (st.pos && st.acc <= MAX_ACC && (!p.length || distLL(p[p.length - 1], [st.pos.lat, st.pos.lon]) > 0.5)) {
+    p.push([+st.pos.lat.toFixed(7), +st.pos.lon.toFixed(7), Date.now(), Math.round(st.acc)]);
+  }
+  if (!p.length) return false;
+  stops().push({ id: uid(), name, i: p.length - 1 });
+  geo = null; save(true); renderTrail(); updateStatus();
+  return true;
+}
+// Follow the trail to one stop, back or forward depending on where you are now.
+function followTo(id) {
+  const s = stops(), stop = s.find(x => x.id === id);
+  if (!stop || pts().length < 2) return;
+  const k = trailIndexHere();
+  const dir = k == null ? (stop.i === 0 ? 'back' : 'forward') : stop.i <= k ? 'back' : 'forward';
+  db.current.dest = Object.assign({}, db.current.dest, { [dir]: id });
+  db.dir = dir; geo = null; st.prog = null;
+  save(); closeSheet();
+  startGuiding();
 }
 function startGuiding() {
   if (pts().length < 2) return;
@@ -937,14 +1047,20 @@ function startGuiding() {
 }
 function stopGuiding() { st.mode = 'stopped'; refresh(); keepAwake(needAwake()); }
 function arrive() {
+  const d = destStop(), s = stops(), far = db.dir === 'back' ? s[0] : s[s.length - 1];
+  if (db.current.dest) db.current.dest[db.dir] = null;   // the next Follow trail carries on to the far end
+  geo = null; save();
   stopGuiding();
   buzz([40, 60, 40]);
-  toast(db.dir === 'back' ? "You're back at the start of your trail." : "You've reached the end of your trail.", 4500);
+  if (d && far && d.id !== far.id) toast(`You reached ${d.name}. Tap Follow trail to keep going to ${far.name}.`, 5500);
+  else if (db.dir === 'back') toast(!d || d.name === 'Start' ? "You're back at the start of your trail." : `You're back at ${d.name}.`, 4500);
+  else toast(!d || d.name === 'End' ? "You've reached the end of your trail." : `You've reached ${d.name}.`, 4500);
 }
 function setDir(d) {
   if (db.dir === d) return;
   db.dir = d; geo = null; st.prog = null;
-  toast(d === 'back' ? 'Footprints now lead back to the start.' : 'Footprints now lead forward to the end.');
+  const to = destStop();
+  toast(`Footprints now lead ${d === 'back' ? 'back' : 'forward'} to ${to ? to.name : d === 'back' ? 'the start' : 'the end'}.`);
   save(); refresh();   // may announce arrival, which replaces the message above
 }
 function clearCurrent() {
@@ -978,7 +1094,13 @@ function loadDemo() {
   const t0 = Date.now() - out.length * 2400;
   const points = out.map(([px, py], i) => { const [lat, lon] = fromXY(px, py, me.lat, me.lon); return [+lat.toFixed(7), +lon.toFixed(7), t0 + i * 2400, 5]; });
   if (db.current && db.current.points.length > 1) db.archive.unshift(db.current);
-  db.current = { id: uid(), name: 'Demo trail', created: t0, points };
+  const n = points.length;
+  db.current = { id: uid(), name: 'Demo trail', created: t0, points, stops: [
+    { id: uid(), name: 'Start', i: 0 },
+    { id: uid(), name: 'Coffee cart', i: Math.round(n * 0.35) },
+    { id: uid(), name: 'Fountain', i: Math.round(n * 0.7) },
+    { id: uid(), name: 'End', i: n - 1 },
+  ] };
   db.dir = 'back'; db.recording = false; st.mode = 'stopped'; geo = null; st.prog = null;
   if (!st.pos) st.sim = { lat: me.lat, lon: me.lon };
   save(true); closeSheet(); refresh(); fitTrail(); updateMe();
@@ -993,6 +1115,8 @@ const MAIN = {
   guiding: ['Done', ICON.check],
 };
 function updateMain() {
+  const rec = String(st.mode === 'recording'), sb = $('#btnSpot');
+  if (sb.dataset.rec !== rec) { sb.dataset.rec = rec; sb.innerHTML = rec === 'true' ? ICON.flag + 'Add stop' : ICON.pin + 'Save spot'; }
   const b = $('#btnMain'), [text, icon] = MAIN[st.mode];
   if (b.dataset.mode === st.mode) return;
   b.dataset.mode = st.mode;
@@ -1000,6 +1124,9 @@ function updateMain() {
 }
 function updateDir() {
   $('#dir').hidden = pts().length < 2 || st.mode === 'recording';
+  const b = destStop('back'), f = destStop('forward');
+  $('#dirBackText').textContent = 'Back to ' + (b ? b.name : 'start');
+  $('#dirFwdText').textContent = 'Forward to ' + (f ? f.name : 'end');
   $('#dirBack').setAttribute('aria-checked', db.dir === 'back');
   $('#dirFwd').setAttribute('aria-checked', db.dir === 'forward');
 }
@@ -1011,7 +1138,10 @@ function updateStatus() {
     ? `<span class="led rec"></span><span class="st-main">Recording</span><span class="num">${fmtDist(p.length > 1 ? trailLen() : 0)}</span><span class="num dim">${fmtDur(Date.now() - p[0][2])}</span>`
     : '<span class="led rec"></span><span class="st-main">Recording</span><span class="st-sub">Waiting for a good GPS fix…</span>';
   else if (st.mode === 'stopped') h = `<span class="st-main">${esc(trailName(db.current))}</span><span class="num">${fmtDist(trailLen())}</span>`;
-  else h = `<span class="led go"></span><span class="st-main">Following ${db.dir === 'back' ? 'back to start' : 'forward to end'}</span>`;
+  else {
+    const d = destStop();
+    h = `<span class="led go"></span><span class="st-main">Following ${db.dir === 'back' ? 'back' : 'on'} to ${esc(d ? d.name : db.dir === 'back' ? 'the start' : 'the end')}</span>`;
+  }
   if (el.innerHTML !== h) el.innerHTML = h;
 }
 function updateGps() {
@@ -1036,7 +1166,8 @@ function guideInfo() {
   if (!f) return null;
   const { g, n } = f, off = n.d > 25;
   const a = off ? [n.x, n.y] : at(g, Math.min(g.total, n.s + 6));
-  return { aim: [a[0] + f.ox, a[1] + f.oy], remain: g.total - n.s + n.d, dest: db.dir === 'back' ? 'start' : 'end', off, offD: n.d };
+  const d = destStop();
+  return { aim: [a[0] + f.ox, a[1] + f.oy], remain: g.total - n.s + n.d, dest: d ? d.name : db.dir === 'back' ? 'start' : 'end', off, offD: n.d };
 }
 function updateGuide() {
   const el = $('#guide'), gi = guideInfo();
@@ -1121,7 +1252,7 @@ function openIntro() {
     <h2>Follow your own footprints back.</h2>
     <ol class="steps">
       <li><span><b>Start trail</b> where you begin walking.</span></li>
-      <li><span><b>Stop</b> when you get where you're going.</span></li>
+      <li><span>Tap <b>Add stop</b> at each place you visit on the way, then <b>Stop</b> when you're done.</span></li>
       <li><span><b>Follow trail</b>, point your phone at the ground, and walk the glowing footprints back.</span></li>
     </ol>
     <p class="muted small">Keep this page open while you record. Phones pause location for web pages when the screen turns off.</p>
@@ -1143,6 +1274,11 @@ function trailsHtml() {
       <div class="eyebrow">${st.mode === 'recording' ? 'Recording now' : 'Current trail'}</div>
       <div class="card-row"><div class="title">${esc(trailName(c))}</div><div class="num big">${fmtDist(trailLen())}</div></div>
       <div class="meta">${fmtDur(p[p.length - 1][2] - p[0][2])} of walking · started ${fmtDate(p[0][2])}</div>
+      <ul class="list">${stops().filter(s => s.i < p.length).map((s, k, arr) => `
+        <li><span class="stop-dot${k === 0 || (k === arr.length - 1 && st.mode !== 'recording') ? ' end' : ''}" aria-hidden="true"></span>
+          <div class="li-main"><div class="title">${esc(s.name)}</div><div class="meta">${k === 0 ? 'Start of trail' : fmtDist(alongTrail(s.i)) + ' from ' + esc(arr[0].name)}</div></div>
+          ${st.mode === 'recording' ? '' : `<button class="btn small" data-act="followstop" data-id="${s.id}">Follow</button>`}
+          <button class="btn small ghost" data-act="editstop" data-id="${s.id}">Edit</button></li>`).join('')}</ul>
       <div class="btn-row">${st.mode === 'recording' ? '' : '<button class="btn" data-act="resume">Keep recording</button>'}<button class="btn danger" data-act="clear">Clear trail</button></div>
     </section>`);
   else out.push('<section class="card"><div class="eyebrow">Current trail</div><p class="muted">Nothing recorded yet. Tap <b>Start trail</b> where you begin walking.</p></section>');
@@ -1152,7 +1288,7 @@ function trailsHtml() {
         <li><span class="pin-dot" aria-hidden="true"></span>
           <div class="li-main"><div class="title">${esc(s.name)}</div><div class="meta">${me ? fmtDist(distLL([me.lat, me.lon], [s.lat, s.lon])) + ' away' : 'Saved ' + fmtDate(s.t)}</div></div>
           <button class="btn small${st.target === s.id ? ' on' : ''}" data-act="guide" data-id="${s.id}">${st.target === s.id ? 'Guiding' : 'Guide me'}</button>
-          <button class="btn small ghost" data-act="delspot" data-id="${s.id}">Delete</button></li>`).join('')}</ul>`
+          <button class="btn small ghost" data-act="editspot" data-id="${s.id}">Edit</button></li>`).join('')}</ul>`
     : '<p class="muted">Tap <b>Save spot</b> to pin where you are, or press and hold anywhere on the map.</p>');
   out.push('<h3>Archived trails</h3>');
   out.push(db.archive.length
@@ -1187,7 +1323,9 @@ function openTrails() {
       closeSheet(); refresh();
       if (st.target) toast(`Guiding you to ${spotById(id).name}.`);
     }
-    else if (act === 'delspot') arm(b, () => { db.spots = db.spots.filter(s => s.id !== id); if (st.target === id) st.target = null; save(true); refresh(); redraw(); });
+    else if (act === 'editspot') openSpotActions(id);
+    else if (act === 'editstop') openStopSheet(id);
+    else if (act === 'followstop') followTo(id);
     else if (act === 'deltrail') arm(b, () => { db.archive = db.archive.filter(t => t.id !== id); save(true); redraw(); });
     else if (act === 'open') openArchived(id);
     else if (act === 'units') { db.units = b.dataset.v; save(); refresh(); redraw(); }
@@ -1240,22 +1378,91 @@ function openSpotSheet(spotAt) {
     }
   });
 }
+const nameRow = value => `
+  <label for="itemName">Name</label>
+  <div class="name-row"><input id="itemName" class="field" maxlength="40" value="${esc(value)}" autocomplete="off"><button type="submit" class="btn">Save</button></div>`;
 function openSpotActions(id) {
   const s = spotById(id), me = here();
   if (!s) return;
+  const d = me ? distLL([me.lat, me.lon], [s.lat, s.lon]) : null, near = d != null && d <= 40;
+  let startRow = '';
+  if (st.mode !== 'recording') {
+    const why = !near ? `Walk to ${esc(s.name)} first to start a trail from it.` : db.current && db.current.points.length > 1 ? 'Your current trail will be archived first.' : '';
+    startRow = `<button type="button" class="btn" data-act="start"${near ? '' : ' disabled'}>Start a new trail here</button>${why ? `<p class="muted small">${why}</p>` : ''}`;
+  }
   openSheet(`
-    <div class="sheet-head"><h2>${esc(s.name)}</h2><button class="btn small ghost" data-act="close">Close</button></div>
-    <p class="muted">${me ? fmtDist(distLL([me.lat, me.lon], [s.lat, s.lon])) + ' from you · ' : ''}saved ${fmtDate(s.t)}</p>
-    <div class="col">
-      <button class="btn primary" data-act="guide">${st.target === id ? 'Stop guiding' : 'Guide me here'}</button>
-      <button class="btn danger" data-act="del">Delete spot</button>
-    </div>`, (act, b) => {
-    if (act === 'guide') { st.target = st.target === id ? null : id; closeSheet(); refresh(); }
+    <form class="sheet-form">
+      <div class="sheet-head"><div class="eyebrow spot">Saved spot</div><button type="button" class="btn small ghost" data-act="close">Close</button></div>
+      ${nameRow(s.name)}
+      <p class="muted small">${d != null ? fmtDist(d) + ' from you · ' : ''}saved ${fmtDate(s.t)}</p>
+      <div class="col">
+        <button type="button" class="btn primary" data-act="guide">${st.target === id ? 'Stop guiding' : 'Guide me here'}</button>
+        ${startRow}
+        <button type="button" class="btn danger" data-act="del">Delete spot</button>
+      </div>
+    </form>`, (act, b) => {
+    if (act === 'submit') {
+      const v = $('#itemName').value.trim();
+      if (v && v !== s.name) { s.name = v; save(true); toast(`Renamed to ${v}.`); }
+      closeSheet(); refresh();
+    }
+    else if (act === 'guide') { st.target = st.target === id ? null : id; closeSheet(); refresh(); }
+    else if (act === 'start') { st.target = null; closeSheet(); startRecording(s); }
     else if (act === 'del') arm(b, () => {
       db.spots = db.spots.filter(x => x.id !== id);
       if (st.target === id) st.target = null;
       save(true); closeSheet(); refresh(); toast('Spot deleted.');
     });
+  });
+}
+function openStopSheet(id) {
+  const s = stops(), k = s.findIndex(x => x.id === id), stop = s[k], p = pts();
+  if (!stop) return;
+  const isEnd = k === s.length - 1 && k > 0 && st.mode !== 'recording';
+  const role = k === 0 ? 'Start of this trail' : isEnd ? 'End of this trail' : `Stop ${k} on this trail`;
+  const canFollow = st.mode !== 'recording' && p.length > 1;
+  openSheet(`
+    <form class="sheet-form">
+      <div class="sheet-head"><div class="eyebrow">${role}</div><button type="button" class="btn small ghost" data-act="close">Close</button></div>
+      ${nameRow(stop.name)}
+      <p class="muted small">${k ? `${fmtDist(alongTrail(stop.i))} along the trail from ${esc(s[0].name)}.` : 'Where this trail begins.'}</p>
+      <div class="col">
+        ${canFollow ? '<button type="button" class="btn primary" data-act="follow">Follow the trail to here</button>' : ''}
+        ${k > 0 && !isEnd ? '<button type="button" class="btn danger" data-act="remove">Remove stop</button>' : ''}
+      </div>
+    </form>`, (act, b) => {
+    if (act === 'submit') {
+      const v = $('#itemName').value.trim();
+      if (v && v !== stop.name) { stop.name = v; save(true); toast(`Renamed to ${v}.`); }
+      closeSheet(); refresh();
+    }
+    else if (act === 'follow') followTo(id);
+    else if (act === 'remove') arm(b, () => {
+      s.splice(k, 1);
+      for (const dir of ['back', 'forward']) if (db.current.dest && db.current.dest[dir] === id) db.current.dest[dir] = null;
+      geo = null; save(true); closeSheet(); refresh(); toast('Stop removed.');
+    });
+  });
+}
+function openAddStop() {
+  if (!st.pos && !pts().length) { toast('Waiting for GPS before adding a stop.'); return; }
+  const n = stops().length;   // the start counts, so the first added stop is Stop 1
+  openSheet(`
+    <form class="sheet-form">
+      <h2>Add a stop</h2>
+      <p class="muted">Marks this place on your trail. Recording keeps going from here, so later you can follow the trail back stop by stop.</p>
+      <label for="stopName">Name</label>
+      <input id="stopName" class="field" maxlength="40" value="Stop ${n}" autocomplete="off">
+      <div class="chips">${['Coffee', 'Lunch', 'Viewpoint', 'Shop', 'Restroom'].map(x => `<button type="button" class="chip-btn" data-act="name" data-v="${x}">${x}</button>`).join('')}</div>
+      <div class="btn-row end"><button type="button" class="btn ghost" data-act="close">Cancel</button><button type="submit" class="btn primary">Add stop</button></div>
+    </form>`, (act, b) => {
+    if (act === 'name') $('#stopName').value = b.dataset.v;
+    else if (act === 'submit') {
+      const name = $('#stopName').value.trim() || `Stop ${n}`;
+      closeSheet();
+      if (addStop(name)) toast(`${name} added. Your trail keeps going from here.`);
+      else toast('Waiting for GPS before adding a stop.');
+    }
   });
 }
 
@@ -1267,7 +1474,7 @@ $('#btnMain').addEventListener('click', () => {
   else stopGuiding();
 });
 $('#btnTrails').addEventListener('click', openTrails);
-$('#btnSpot').addEventListener('click', () => openSpotSheet());
+$('#btnSpot').addEventListener('click', () => (st.mode === 'recording' ? openAddStop() : openSpotSheet()));
 $('#dirBack').addEventListener('click', () => setDir('back'));
 $('#dirFwd').addEventListener('click', () => setDir('forward'));
 $('#tabMap').addEventListener('click', () => setView('map'));
